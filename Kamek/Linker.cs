@@ -170,8 +170,8 @@ namespace Kamek
             public uint size;
             public bool isWeak;
         }
-        private Dictionary<string, Symbol> _globalSymbols = null;
-        private Dictionary<Elf, Dictionary<string, Symbol>> _localSymbols = null;
+        private Dictionary<int, Symbol> _globalSymbols = null;
+        private Dictionary<Elf, Dictionary<int, Symbol>> _localSymbols = null;
         private Dictionary<Elf.ElfSection, string[]> _symbolTableContents = null;
         private Dictionary<string, uint> _externalSymbols = null;
         private Dictionary<Word, uint> _symbolSizes = null;
@@ -179,17 +179,17 @@ namespace Kamek
 
         private void BuildSymbolTables()
         {
-            _globalSymbols = new Dictionary<string, Symbol>();
-            _localSymbols = new Dictionary<Elf, Dictionary<string, Symbol>>();
+            _globalSymbols = new Dictionary<int, Symbol>();
+            _localSymbols = new Dictionary<Elf, Dictionary<int, Symbol>>();
             _symbolTableContents = new Dictionary<Elf.ElfSection, string[]>();
             _symbolSizes = new Dictionary<Word, uint>();
 
-            _globalSymbols["__ctor_loc"] = new Symbol { address = _ctorStart };
-            _globalSymbols["__ctor_end"] = new Symbol { address = _ctorEnd };
+            /*_globalSymbols["__ctor_loc"] = new Symbol { address = _ctorStart };
+            _globalSymbols["__ctor_end"] = new Symbol { address = _ctorEnd };*/
 
             foreach (Elf elf in _modules)
             {
-                var locals = new Dictionary<string, Symbol>();
+                var locals = new Dictionary<int, Symbol>();
                 _localSymbols[elf] = locals;
 
                 foreach (var s in (from s in elf.Sections
@@ -208,7 +208,7 @@ namespace Kamek
             }
         }
 
-        private string[] ParseSymbolTable(Elf elf, Elf.ElfSection symtab, Elf.ElfSection strtab, Dictionary<string, Symbol> locals)
+        private string[] ParseSymbolTable(Elf elf, Elf.ElfSection symtab, Elf.ElfSection strtab, Dictionary<int, Symbol> locals)
         {
             if (symtab.sh_entsize != 16)
                 throw new InvalidDataException("Invalid symbol table format (sh_entsize != 16)");
@@ -239,7 +239,7 @@ namespace Kamek
                 string name = Util.ExtractNullTerminatedString(strtab.data, (int)st_name);
 
                 symbolNames.Add(name);
-                if (name.Length == 0 || st_shndx == 0)
+                if (st_shndx == 0)
                     continue;
 
                 // What location is this referencing?
@@ -268,29 +268,28 @@ namespace Kamek
                 else
                     throw new NotImplementedException("unknown section index found in symbol table");
 
-
                 switch (bind)
                 {
                     case Elf.SymBind.STB_LOCAL:
-                        if (locals.ContainsKey(name))
-                            throw new InvalidDataException("redefinition of local symbol " + name);
-                        locals[name] = new Symbol { address = addr, size = st_size };
+                        /*if (locals.ContainsKey(name))
+                            throw new InvalidDataException("redefinition of local symbol " + name);*/
+                        locals[i] = new Symbol { address = addr, size = st_size };
                         _symbolSizes[addr] = st_size;
                         break;
 
                     case Elf.SymBind.STB_GLOBAL:
-                        if (_globalSymbols.ContainsKey(name) && !_globalSymbols[name].isWeak)
-                            throw new InvalidDataException("redefinition of global symbol " + name);
-                        _globalSymbols[name] = new Symbol { address = addr, size = st_size };
+                        /*if (_globalSymbols.ContainsKey(name) && !_globalSymbols[name].isWeak)
+                            throw new InvalidDataException("redefinition of global symbol " + name);*/
+                        _globalSymbols[i] = new Symbol { address = addr, size = st_size };
                         _symbolSizes[addr] = st_size;
                         break;
 
                     case Elf.SymBind.STB_WEAK:
-                        if (!_globalSymbols.ContainsKey(name))
-                        {
-                            _globalSymbols[name] = new Symbol { address = addr, size = st_size, isWeak = true };
+                        /*if (!_globalSymbols.ContainsKey(name))
+                        {*/
+                            _globalSymbols[i] = new Symbol { address = addr, size = st_size, isWeak = true };
                             _symbolSizes[addr] = st_size;
-                        }
+                        //}
                         break;
                 }
             }
@@ -299,7 +298,7 @@ namespace Kamek
         }
 
 
-        Symbol ResolveSymbol(Elf elf, string name)
+        /*Symbol ResolveSymbol(Elf elf, string name)
         {
             var locals = _localSymbols[elf];
             if (locals.ContainsKey(name))
@@ -318,7 +317,7 @@ namespace Kamek
             }
 
             throw new InvalidDataException("undefined symbol " + name);
-        }
+        }*/
         #endregion
 
 
@@ -389,9 +388,18 @@ namespace Kamek
                 //Console.WriteLine("{0,-30} {1}", symName, reloc);
 
                 Word source = _sectionBases[section] + r_offset;
-                Word dest = ResolveSymbol(elf, symName).address + r_addend;
+                Word dest;
 
-                //Console.WriteLine("Linking from {0} to {1}", source, dest);
+                try
+                {
+                    dest = _localSymbols[elf][symIndex].address + r_addend;
+                }
+                catch (KeyNotFoundException)
+                {
+                    dest = _globalSymbols[symIndex].address + r_addend;
+                }
+
+                Console.WriteLine("Linking {0} from 0x{1:X8} to 0x{2:X8}", symIndex, source.Value, dest.Value);
 
                 if (!KamekUseReloc(reloc, source, dest))
                     _fixups.Add(new Fixup { type = reloc, source = source, dest = dest });
@@ -430,7 +438,7 @@ namespace Kamek
             {
                 foreach (var pair in _localSymbols[elf])
                 {
-                    if (pair.Key.StartsWith("_kHook"))
+                    /*if (pair.Key.StartsWith("_kHook"))
                     {
                         var cmdAddr = pair.Value.address;
 
@@ -448,7 +456,7 @@ namespace Kamek
                         }
 
                         _hooks.Add(new HookData { type = type, args = args });
-                    }
+                    }*/
                 }
             }
         }

@@ -192,11 +192,13 @@ namespace Kamek
             {
                 // add the big patch
                 // (todo: valuefile support)
-                var sb = new StringBuilder(_codeBlob.Length * 2);
+                var sb = new StringBuilder(_codeBlob.Length * 2 + 38);
+                sb.AppendFormat("<memory offset=\"0x{0:X8}\" value=\"", _baseAddress.Value);
                 for (int i = 0; i < _codeBlob.Length; i++)
                     sb.AppendFormat("{0:X2}", _codeBlob[i]);
+                sb.Append("\"/>");
 
-                elements.Add(string.Format("<memory offset='0x{0:X8}' value='{1}' />", _baseAddress.Value, sb.ToString()));
+                elements.Add(sb.ToString());
             }
 
             // add individual patches

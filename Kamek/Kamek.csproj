@@ -6,5 +6,6 @@
   </PropertyGroup>
   <PropertyGroup>
     <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 </Project>

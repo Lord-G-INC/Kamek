@@ -304,9 +304,18 @@ namespace Kamek
                 return _globalSymbols[name];
             if (_externalSymbols.ContainsKey(name))
                 return new Symbol { address = new Word(WordType.AbsoluteAddr, _externalSymbols[name]) };
-            if (name.StartsWith("__kAutoMap_")) {
-                var addr = name.Substring(11);
-                if (addr.StartsWith("0x") || addr.StartsWith("0X"))
+
+            int offset = -1;
+            if (name.StartsWith("FUN_", StringComparison.OrdinalIgnoreCase) || name.StartsWith("LAB_", StringComparison.OrdinalIgnoreCase))
+                offset = 4;
+            else if (name.StartsWith("func_", StringComparison.OrdinalIgnoreCase))
+                offset = 5;
+            else if (name.StartsWith("__kAutoMap_"))
+                offset = 11;
+
+            if (offset != -1) {
+                var addr = name.Substring(offset);
+                if (addr.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                     addr = addr.Substring(2);
                 var parsedAddr = uint.Parse(addr, System.Globalization.NumberStyles.AllowHexSpecifier);
                 var mappedAddr = Mapper.Remap(parsedAddr);

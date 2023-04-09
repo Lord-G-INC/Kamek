@@ -45,40 +45,46 @@ namespace Kamek
         }
 
 
-        public void Write(Stream output)
+        public byte[] Write()
         {
-            var bw = new BinaryWriter(output);
-
-            // Generate the header
-            var fields = new uint[3 * 18];
-            uint position = 0x100;
-            for (int i = 0; i < 18; i++)
+            using (var ms = new MemoryStream())
             {
-                if (Sections[i].Data.Length > 0)
+                using (var bw = new BinaryWriter(ms))
                 {
-                    fields[i] = position;
-                    fields[i + 18] = Sections[i].LoadAddress;
-                    fields[i + 36] = (uint)Sections[i].Data.Length;
-                    position += (uint)((Sections[i].Data.Length + 0x1F) & ~0x1F);
+                    // Generate the header
+                    var fields = new uint[3 * 18];
+                    uint position = 0x100;
+                    for (int i = 0; i < 18; i++)
+                    {
+                        if (Sections[i].Data.Length > 0)
+                        {
+                            fields[i] = position;
+                            fields[i + 18] = Sections[i].LoadAddress;
+                            fields[i + 36] = (uint)Sections[i].Data.Length;
+                            position += (uint)((Sections[i].Data.Length + 0x1F) & ~0x1F);
+                        }
+                    }
+
+                    for (int i = 0; i < (3 * 18); i++)
+                        bw.WriteBE(fields[i]);
+                    bw.WriteBE(BssAddress);
+                    bw.WriteBE(BssSize);
+                    bw.WriteBE(EntryPoint);
+                    bw.Write(new byte[0x100 - 0xE4]);
+
+                    // Write all sections
+                    for (int i = 0; i < 18; i++)
+                    {
+                        bw.Write(Sections[i].Data);
+
+                        int paddedLength = ((Sections[i].Data.Length + 0x1F) & ~0x1F);
+                        int padding = paddedLength - Sections[i].Data.Length;
+                        if (padding > 0)
+                            bw.Write(new byte[padding]);
+                    }
                 }
-            }
 
-            for (int i = 0; i < (3 * 18); i++)
-                bw.WriteBE(fields[i]);
-            bw.WriteBE(BssAddress);
-            bw.WriteBE(BssSize);
-            bw.WriteBE(EntryPoint);
-            bw.Write(new byte[0x100 - 0xE4]);
-
-            // Write all sections
-            for (int i = 0; i < 18; i++)
-            {
-                bw.Write(Sections[i].Data);
-
-                int paddedLength = ((Sections[i].Data.Length + 0x1F) & ~0x1F);
-                int padding = paddedLength - Sections[i].Data.Length;
-                if (padding > 0)
-                    bw.Write(new byte[padding]);
+                return ms.ToArray();
             }
         }
 

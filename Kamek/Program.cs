@@ -154,11 +154,7 @@ namespace Kamek
                     var dol = new Dol(new FileStream(inputDolPath.Replace("$KV$", version.Key), FileMode.Open));
                     kf.InjectIntoDol(dol);
 
-                    var outpath = outputDolPath.Replace("$KV$", version.Key);
-                    using (var outStream = new FileStream(outpath, FileMode.Create))
-                    {
-                        dol.Write(outStream);
-                    }
+                    File.WriteAllBytes(outputDolPath.Replace("$KV$", version.Key), dol.Write());
                 }
             }
         }

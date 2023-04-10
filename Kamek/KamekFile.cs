@@ -181,7 +181,7 @@ namespace Kamek
             }
         }
 
-        public string PackRiivolution()
+        public string[] PackRiivolution()
         {
             if (_baseAddress.Type == WordType.RelativeAddr)
                 throw new InvalidOperationException("cannot pack a dynamically linked binary as a Riivolution patch");
@@ -205,10 +205,10 @@ namespace Kamek
             foreach (var pair in _commands)
                 elements.Add(pair.Value.PackForRiivolution());
 
-            return string.Join("\n", elements);
+            return elements.ToArray();
         }
 
-        public string PackDolphin()
+        public string[] PackDolphin()
         {
             if (_baseAddress.Type == WordType.RelativeAddr)
                 throw new InvalidOperationException("cannot pack a dynamically linked binary as a Dolphin patch");
@@ -250,7 +250,7 @@ namespace Kamek
             foreach (var pair in _commands)
                 elements.Add(pair.Value.PackForDolphin());
 
-            return string.Join("\n", elements);
+            return elements.ToArray();
         }
 
         public string PackGeckoCodes()

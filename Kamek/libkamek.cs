@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Kamek; 
 static class Library {
@@ -13,26 +15,69 @@ static class Library {
 		dol,
 	}
 
+	public enum ArgumentType {
+		None,
+		String,
+		Int,
+	}
+
+	public enum Games {
+		RMGJ,
+		RMGE,
+		RMGP,
+		RMGK,
+		SB4J,
+		SB4E,
+		SB4P,
+		SB4W,
+		SB4K,
+	}
+
+	public struct Patch {
+		public Elf Code;
+		public ArgumentType Argument;
+		public List<int> ArgOffsets;
+	}
+
 	public record struct PtrInfo(nint Ptr, int Size);
 
-	static void Create_Patch(string[] patches, string gameID, PatchType patchType, uint baseAddress, 
-		out byte[] bytes, out string str) {
-		bytes = null;
-		str = null;
-		var modules = new List<Elf>();
+	public static Dictionary<string, uint> externals = new Dictionary<string, uint>();
+	public static Dictionary<string, Patch> patches = new Dictionary<string, Patch>();
 
-		foreach (var patch in patches) {
-            using var stream = new FileStream("/srv/http/smg/patches/" + patch + ".o", FileMode.Open, FileAccess.Read);
-            modules.Add(new Elf(stream));
-        }
+	[UnmanagedCallersOnly(EntryPoint = "kamek_init")]
+	static void Init() {
+		JArray jsonArr = JArray.Parse(File.ReadAllText("/srv/http/smg/patches.json"));
 
-		var externals = new Dictionary<string, uint>();
+		foreach (JObject jsonObj in jsonArr) {
+			string patchName = jsonObj.GetValue("name").ToString();
+
+			Console.WriteLine("Loading patch {0}", patchName);
+
+			Elf patchElf;
+			using (var stream = new FileStream("/srv/http/smg/patches" + patchName + ".o", FileMode.Open, FileAccess.Read)) {
+				patchElf = new Elf(stream);
+			}
+			Patch patch = new Patch {
+				Code = patchElf
+			};
+
+			if (jsonObj.TryGetValue("argument", out JToken argumentValue)) {
+				patch.Argument = (ArgumentType)Enum.Parse(typeof(ArgumentType), argumentValue.ToString());
+
+				if (patch.Argument == ArgumentType.Int && jsonObj.TryGetValue("argOffset", out JToken argOffsetValue))
+					patch.ArgOffsets = argOffsetValue.ToObject<List<int>>();
+			} else {
+				patch.Argument = ArgumentType.None;
+			}
+
+			patches[patchName] = patch;
+		}
 
 		var commentRegex = new Regex(@"^\s*#");
 		var emptyLineRegex = new Regex(@"^\s*$");
 		var assignmentRegex = new Regex(@"^\s*([a-zA-Z0-9_<>@,-\\$]+)\s*=\s*0x([a-fA-F0-9]+)\s*(#.*)?$");
 
-		foreach (var line in File.ReadAllLines("/srv/http/smg/" + gameID + ".map")) {
+		foreach (var line in File.ReadAllLines("/srv/http/smg/SB4E01.map")) {
 			if (emptyLineRegex.IsMatch(line))
 				continue;
 			if (commentRegex.IsMatch(line))
@@ -44,14 +89,21 @@ static class Library {
 			else
 				Console.Error.WriteLine("unrecognised line in externals file: {0}", line);
 		}
+	}
+
+	static void CreatePatch(string[] patchesEnabled, string gameID, PatchType patchType, uint baseAddress,
+		out byte[] bytes, out string[] str) {
+		bytes = null;
+		str = null;
 
 		// We need a default VersionList for the loop later
 		VersionInfo versions = new();
 
 		foreach (var version in versions.Mappers) {
 			var linker = new Linker(version.Value);
-			foreach (var module in modules)
-				linker.AddModule(module);
+			foreach (var patchEnabled in patchesEnabled) {
+				linker.AddModule(patches[patchEnabled].Code);
+			}
 
 			if (patchType == PatchType.bin)
 				linker.LinkDynamic(externals);
@@ -64,49 +116,47 @@ static class Library {
 			switch (patchType) {
 				case PatchType.bin: {
 					bytes = kf.Pack();
-					// return kamekBin
 					break;
 				}
 				case PatchType.xml: {
 					str = kf.PackRiivolution();
-					// return riivXml
 					break;
 				}
 				case PatchType.ini: {
 					str = kf.PackDolphin();
-					// return dolphinIni
 					break;
 				}
 				case PatchType.dol: {
 					var dol = new Dol(new FileStream("/srv/http/smg/" + gameID + ".dol", FileMode.Open, FileAccess.Read));
 					kf.InjectIntoDol(dol);
 					bytes = dol.Write();
-					// return dolBin
 					break;
 				}
 			}
 		}
 	}
 
-	[UnmanagedCallersOnly(EntryPoint = "create_patch")]
-	public static unsafe PtrInfo Create_Patch(nint patches_ptr, int patches_size, nint gameID_ptr, 
+	[UnmanagedCallersOnly(EntryPoint = "kamek_createpatch")]
+	public static unsafe PtrInfo CreatePatch(nint pPatches, int patchesSize, nint pGameID, 
 		PatchType patchType, uint baseAddress) {
-		string[] patches = new string[patches_size];
-		char** ptr = (char**)patches_ptr;
-		for (int i = 0; i < patches_size; i++)
+		string[] patches = new string[patchesSize];
+		char** ptr = (char**)pPatches;
+		for (int i = 0; i < patchesSize; i++)
 			patches[i] = Marshal.PtrToStringAnsi((nint)ptr[i]);
-		string gameID = Marshal.PtrToStringAnsi(gameID_ptr);
-		Create_Patch(patches, gameID, patchType, baseAddress, out var bytes, out var str);
+		string gameID = Marshal.PtrToStringAnsi(pGameID);
+		CreatePatch(patches, gameID, patchType, baseAddress, out var bytes, out var str);
 		PtrInfo info = new();
-		if (bytes != null)
-		{
-			info.Ptr = Marshal.AllocHGlobal(bytes.Length);
+		if (bytes != null) {
 			info.Size = bytes.Length;
+			info.Ptr = Marshal.AllocHGlobal(bytes.Length);
 			Marshal.Copy(bytes, 0, info.Ptr, bytes.Length);
-		} else if (str != null)
-		{
-			info.Ptr = Marshal.StringToHGlobalAnsi(str);
+		} else if (str != null) {
 			info.Size = str.Length;
+			info.Ptr = Marshal.AllocHGlobal(str.Length * 8);
+			for (int i = 0; i < patchesSize; i++) {
+				nint destPtr = info.Ptr + (i * 8);
+				destPtr = Marshal.StringToHGlobalAnsi(str[i]);
+			}
 		}
 		return info;
 	}

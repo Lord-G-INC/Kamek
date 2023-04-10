@@ -157,9 +157,12 @@ static class Library {
 			info.Ptr = Marshal.AllocHGlobal(strs.Length * 8);
 			byte** sptrs = (byte**)info.Ptr;
 			for (int i = 0; i < strs.Length; i++) {
-				sptrs[i] = (byte*)Marshal.AllocHGlobal(strs[i].Length);
-				byte[] arr = Encoding.ASCII.GetBytes(strs[i]);
-				Marshal.Copy(arr, 0, (nint)sptrs[i], arr.Length);
+                List<byte> arr = new(Encoding.ASCII.GetBytes(strs[i]))
+                {
+                    0
+                };
+				sptrs[i] = (byte*)Marshal.AllocHGlobal(arr.Count);
+				Marshal.Copy(arr.ToArray(), 0, (nint)sptrs[i], arr.Count);
 			}
 		}
 		return info;

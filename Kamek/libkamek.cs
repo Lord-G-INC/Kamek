@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -48,7 +50,7 @@ static class Library {
 	static void Init() {
 		JArray jsonArr = JArray.Parse(File.ReadAllText("/srv/http/smg/patches.json"));
 
-		foreach (JObject jsonObj in jsonArr) {
+		foreach (JObject jsonObj in jsonArr.Cast<JObject>()) {
 			string patchName = jsonObj.GetValue("name").ToString();
 
 			Console.WriteLine("Loading patch {0}", patchName);
@@ -92,9 +94,9 @@ static class Library {
 	}
 
 	static void CreatePatch(string[] patchesEnabled, string gameID, PatchType patchType, uint baseAddress,
-		out byte[] bytes, out string[] str) {
+		out byte[] bytes, out string[] strs) {
 		bytes = null;
-		str = null;
+		strs = null;
 
 		// We need a default VersionList for the loop later
 		VersionInfo versions = new();
@@ -119,11 +121,11 @@ static class Library {
 					break;
 				}
 				case PatchType.xml: {
-					str = kf.PackRiivolution();
+					strs = kf.PackRiivolution();
 					break;
 				}
 				case PatchType.ini: {
-					str = kf.PackDolphin();
+					strs = kf.PackDolphin();
 					break;
 				}
 				case PatchType.dol: {
@@ -144,18 +146,20 @@ static class Library {
 		for (int i = 0; i < patchesSize; i++)
 			patches[i] = Marshal.PtrToStringAnsi((nint)ptr[i]);
 		string gameID = Marshal.PtrToStringAnsi(pGameID);
-		CreatePatch(patches, gameID, patchType, baseAddress, out var bytes, out var str);
+		CreatePatch(patches, gameID, patchType, baseAddress, out var bytes, out var strs);
 		PtrInfo info = new();
 		if (bytes != null) {
 			info.Size = bytes.Length;
 			info.Ptr = Marshal.AllocHGlobal(bytes.Length);
 			Marshal.Copy(bytes, 0, info.Ptr, bytes.Length);
-		} else if (str != null) {
-			info.Size = str.Length;
-			info.Ptr = Marshal.AllocHGlobal(str.Length * 8);
-			for (int i = 0; i < patchesSize; i++) {
-				nint destPtr = info.Ptr + (i * 8);
-				destPtr = Marshal.StringToHGlobalAnsi(str[i]);
+		} else if (strs != null) {
+			info.Size = strs.Length;
+			info.Ptr = Marshal.AllocHGlobal(strs.Length * 8);
+			byte** sptrs = (byte**)info.Ptr;
+			for (int i = 0; i < strs.Length; i++) {
+				sptrs[i] = (byte*)Marshal.AllocHGlobal(strs[i].Length);
+				byte[] arr = Encoding.ASCII.GetBytes(strs[i]);
+				Marshal.Copy(arr, 0, (nint)sptrs[i], arr.Length);
 			}
 		}
 		return info;

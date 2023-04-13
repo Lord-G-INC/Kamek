@@ -10,7 +10,7 @@ namespace Kamek
     class Linker
     {
         private bool _linked = false;
-        private List<Elf> _modules = new List<Elf>();
+        private List<Library.Patch> _modules = new List<Library.Patch>();
         public readonly AddressMapper Mapper;
 
         public Linker(AddressMapper mapper)
@@ -18,14 +18,14 @@ namespace Kamek
             Mapper = mapper;
         }
 
-        public void AddModule(Elf elf)
+        public void AddModule(Library.Patch patch)
         {
             if (_linked)
                 throw new InvalidOperationException("This linker has already been linked");
-            if (_modules.Contains(elf))
+            if (_modules.Contains(patch))
                 throw new InvalidOperationException("This module is already part of this linker");
 
-            _modules.Add(elf);
+            _modules.Add(patch);
         }
 
         public void LinkStatic(uint baseAddress, Dictionary<string, uint> externalSymbols)
@@ -39,6 +39,13 @@ namespace Kamek
             DoLink(externalSymbols);
         }
 
+        private Dictionary<string, Symbol> _globalSymbols = null;
+        private Dictionary<Elf, Dictionary<string, Symbol>> _localSymbols = null;
+        private Dictionary<Elf.ElfSection, SymbolName[]> _symbolTableContents = null;
+        private Dictionary<string, uint> _externalSymbols = null;
+        private Dictionary<Word, uint> _symbolSizes = null;
+        public IReadOnlyDictionary<Word, uint> SymbolSizes { get { return _symbolSizes; } }
+
         private void DoLink(Dictionary<String, uint> externalSymbols)
         {
             if (_linked)
@@ -48,6 +55,11 @@ namespace Kamek
             _externalSymbols = new Dictionary<string, uint>();
             foreach (var pair in externalSymbols)
                 _externalSymbols.Add(pair.Key, Mapper.Remap(pair.Value));
+
+            _globalSymbols = new Dictionary<string, Symbol>();
+            _localSymbols = new Dictionary<Elf, Dictionary<string, Symbol>>();
+            _symbolTableContents = new Dictionary<Elf.ElfSection, SymbolName[]>();
+            _symbolSizes = new Dictionary<Word, uint>();
 
             CollectSections();
             BuildSymbolTables();
@@ -81,8 +93,10 @@ namespace Kamek
 
         private void ImportSections(string prefix)
         {
-            foreach (var elf in _modules)
+            foreach (var patch in _modules)
             {
+                Elf elf = patch.Code;
+                _localSymbols[elf] = new Dictionary<string, Symbol>();
                 foreach (var s in (from s in elf.Sections
                                    where s.name.StartsWith(prefix)
                                    select s))
@@ -101,6 +115,29 @@ namespace Kamek
                         long alignment = 4 - (_location.Value % 4);
                         _binaryBlobs.Add(new byte[alignment]);
                         _location += alignment;
+                    }
+                }
+
+                if (prefix == ".rodata")
+                {
+                    foreach (var argument in patch.Arguments)
+                    {
+                        if (argument.StrVal == null)
+                            continue;
+
+                        uint argLen = (uint)argument.StrVal.Length + 1;
+                        _binaryBlobs.Add(Encoding.ASCII.GetBytes(argument.StrVal));
+                        _binaryBlobs.Add(new byte[] { 0 });
+                        _localSymbols[elf][argument.Name] = new Symbol { address = _location, size = argLen };
+                        _location += argLen;
+
+                        // Align to 4 bytes
+                        if ((_location.Value % 4) != 0)
+                        {
+                            long alignment = 4 - (_location.Value % 4);
+                            _binaryBlobs.Add(new byte[alignment]);
+                            _location += alignment;
+                        }
                     }
                 }
             }
@@ -175,28 +212,15 @@ namespace Kamek
             public string name;
             public ushort shndx;
         }
-        private Dictionary<string, Symbol> _globalSymbols = null;
-        private Dictionary<Elf, Dictionary<string, Symbol>> _localSymbols = null;
-        private Dictionary<Elf.ElfSection, SymbolName[]> _symbolTableContents = null;
-        private Dictionary<string, uint> _externalSymbols = null;
-        private Dictionary<Word, uint> _symbolSizes = null;
-        public IReadOnlyDictionary<Word, uint> SymbolSizes { get { return _symbolSizes; } }
 
         private void BuildSymbolTables()
         {
-            _globalSymbols = new Dictionary<string, Symbol>();
-            _localSymbols = new Dictionary<Elf, Dictionary<string, Symbol>>();
-            _symbolTableContents = new Dictionary<Elf.ElfSection, SymbolName[]>();
-            _symbolSizes = new Dictionary<Word, uint>();
-
             _globalSymbols["__ctor_loc"] = new Symbol { address = _ctorStart };
             _globalSymbols["__ctor_end"] = new Symbol { address = _ctorEnd };
 
-            foreach (Elf elf in _modules)
+            foreach (var patch in _modules)
             {
-                var locals = new Dictionary<string, Symbol>();
-                _localSymbols[elf] = locals;
-
+                Elf elf = patch.Code;
                 foreach (var s in (from s in elf.Sections
                                    where s.sh_type == Elf.ElfSection.Type.SHT_SYMTAB
                                    select s))
@@ -208,7 +232,7 @@ namespace Kamek
 
                     var strtab = elf.Sections[(int)strTabIdx];
 
-                    _symbolTableContents[s] = ParseSymbolTable(elf, s, strtab, locals);
+                    _symbolTableContents[s] = ParseSymbolTable(elf, s, strtab, _localSymbols[elf]);
                 }
             }
         }
@@ -338,8 +362,9 @@ namespace Kamek
 
         private void ProcessRelocations()
         {
-            foreach (Elf elf in _modules)
+            foreach (var patch in _modules)
             {
+                Elf elf = patch.Code;
                 foreach (var s in (from s in elf.Sections
                                    where s.sh_type == Elf.ElfSection.Type.SHT_REL
                                    select s))
@@ -432,8 +457,9 @@ namespace Kamek
 
         private void ProcessHooks()
         {
-            foreach (var elf in _modules)
+            foreach (var patch in _modules)
             {
+                Elf elf = patch.Code;
                 foreach (var pair in _localSymbols[elf])
                 {
                     if (pair.Key.StartsWith("_kHook"))

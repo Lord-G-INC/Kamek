@@ -35,10 +35,16 @@ static class Library {
 		SB4K,
 	}
 
+	public struct PatchArg {
+		public string Name;
+		public string StrVal;
+		public int IntVal;
+		public List<int> IntOffsets;
+	}
+
 	public struct Patch {
 		public Elf Code;
-		public ArgumentType Argument;
-		public List<int> ArgOffsets;
+		public List<PatchArg> Arguments;
 	}
 
 	public record struct PtrInfo(nint Ptr, int Size);
@@ -48,28 +54,35 @@ static class Library {
 
 	[UnmanagedCallersOnly(EntryPoint = "kamek_init")]
 	static void Init() {
-		JArray jsonArr = JArray.Parse(File.ReadAllText("/srv/http/smg/patches.json"));
+		JArray jsonArr = JArray.Parse(File.ReadAllText("/srv/http/smg/smg2-patches.json"));
 
 		foreach (JObject jsonObj in jsonArr.Cast<JObject>()) {
 			string patchName = jsonObj.GetValue("name").ToString();
 
-			Console.WriteLine("Loading patch {0}", patchName);
-
 			Elf patchElf;
-			using (var stream = new FileStream("/srv/http/smg/patches" + patchName + ".o", FileMode.Open, FileAccess.Read)) {
+			using (var stream = new FileStream("/srv/http/smg/patches/" + patchName + ".o", FileMode.Open, FileAccess.Read)) {
 				patchElf = new Elf(stream);
 			}
 			Patch patch = new Patch {
 				Code = patchElf
 			};
 
-			if (jsonObj.TryGetValue("argument", out JToken argumentValue)) {
-				patch.Argument = (ArgumentType)Enum.Parse(typeof(ArgumentType), argumentValue.ToString());
-
-				if (patch.Argument == ArgumentType.Int && jsonObj.TryGetValue("argOffset", out JToken argOffsetValue))
-					patch.ArgOffsets = argOffsetValue.ToObject<List<int>>();
-			} else {
-				patch.Argument = ArgumentType.None;
+			patch.Arguments = new List<PatchArg>();
+			if (jsonObj.TryGetValue("arguments", out JToken argumentsObj)) {
+				JArray argumentsArray = (JArray)argumentsObj;
+				foreach (JObject argument in argumentsArray.Cast<JObject>()) {
+					PatchArg patchArg = new PatchArg { Name = jsonObj.GetValue("name").ToString() };
+					if (argument.TryGetValue("offset", out JToken offset)) {
+						patchArg.StrVal = null;
+						// Temporary placeholder until we figure out how to pass arguments from C
+						patchArg.IntVal = 1;
+						patchArg.IntOffsets = offset.ToObject<List<int>>();
+					} else {
+						// Ditto
+						patchArg.StrVal = "StarCreekGalaxy";
+					}
+					patch.Arguments.Add(patchArg);
+				}
 			}
 
 			patches[patchName] = patch;
@@ -104,7 +117,7 @@ static class Library {
 		foreach (var version in versions.Mappers) {
 			var linker = new Linker(version.Value);
 			foreach (var patchEnabled in patchesEnabled) {
-				linker.AddModule(patches[patchEnabled].Code);
+				linker.AddModule(patches[patchEnabled]);
 			}
 
 			if (patchType == PatchType.bin)
@@ -157,12 +170,7 @@ static class Library {
 			info.Ptr = Marshal.AllocHGlobal(strs.Length * 8);
 			byte** sptrs = (byte**)info.Ptr;
 			for (int i = 0; i < strs.Length; i++) {
-                List<byte> arr = new(Encoding.ASCII.GetBytes(strs[i]))
-                {
-                    0
-                };
-				sptrs[i] = (byte*)Marshal.AllocHGlobal(arr.Count);
-				Marshal.Copy(arr.ToArray(), 0, (nint)sptrs[i], arr.Count);
+				sptrs[i] = (byte*)Marshal.StringToHGlobalAnsi(strs[i]);
 			}
 		}
 		return info;

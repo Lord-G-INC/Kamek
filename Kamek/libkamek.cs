@@ -71,12 +71,12 @@ static class Library {
 			if (jsonObj.TryGetValue("arguments", out JToken argumentsObj)) {
 				JArray argumentsArray = (JArray)argumentsObj;
 				foreach (JObject argument in argumentsArray.Cast<JObject>()) {
-					PatchArg patchArg = new PatchArg { Name = jsonObj.GetValue("name").ToString() };
-					if (argument.TryGetValue("offset", out JToken offset)) {
+					PatchArg patchArg = new PatchArg { Name = argument.GetValue("name").ToString() };
+					if (argument.TryGetValue("offsets", out JToken offsets)) {
 						patchArg.StrVal = null;
 						// Temporary placeholder until we figure out how to pass arguments from C
 						patchArg.IntVal = 1;
-						patchArg.IntOffsets = offset.ToObject<List<int>>();
+						patchArg.IntOffsets = offsets.Select(j => (int)j).ToList();
 					} else {
 						// Ditto
 						patchArg.StrVal = "StarCreekGalaxy";

@@ -95,27 +95,45 @@ namespace Kamek
         {
             foreach (var patch in _modules)
             {
+                uint elfLocation = 0;
                 Elf elf = patch.Code;
                 _localSymbols[elf] = new Dictionary<string, Symbol>();
-                foreach (var s in (from s in elf.Sections
-                                   where s.name.StartsWith(prefix)
-                                   select s))
+                foreach (var s in elf.Sections)
                 {
-                    if (s.data != null)
-                        _binaryBlobs.Add(s.data);
-                    else
-                        _binaryBlobs.Add(new byte[s.sh_size]);
-
-                    _sectionBases[s] = _location;
-                    _location += s.sh_size;
-
-                    // Align to 4 bytes
-                    if ((_location.Value % 4) != 0)
+                    if (s.name == prefix)
                     {
-                        long alignment = 4 - (_location.Value % 4);
-                        _binaryBlobs.Add(new byte[alignment]);
-                        _location += alignment;
+                        if (s.data != null) {
+                            byte[] sectionData = s.data;
+                            foreach (var patchArg in patch.Arguments) {
+                                if (patchArg.StrVal == null) {
+                                    foreach (var intOffset in patchArg.IntOffsets) {
+                                        if (intOffset == elfLocation || (intOffset > elfLocation && intOffset < elfLocation + s.data.Length)) {
+                                            long offset = intOffset - elfLocation;
+                                            sectionData[offset] = (byte)(patchArg.IntVal >> 8);
+                                            sectionData[offset + 1] = (byte)(patchArg.IntVal & 0xFF);
+                                        }
+                                    }
+                                }
+                            }
+                            _binaryBlobs.Add(sectionData);
+                        } else {
+                            _binaryBlobs.Add(new byte[s.sh_size]);
+                        }
+
+                        _sectionBases[s] = _location;
+                        _location += s.sh_size;
+
+                        // Align to 4 bytes
+                        if ((_location.Value % 4) != 0)
+                        {
+                            long alignment = 4 - (_location.Value % 4);
+                            _binaryBlobs.Add(new byte[alignment]);
+                            _location += alignment;
+                        }
                     }
+
+                    if (s.data != null)
+                        elfLocation += (uint)s.data.Length;
                 }
 
                 if (prefix == ".rodata")
@@ -128,7 +146,7 @@ namespace Kamek
                         uint argLen = (uint)argument.StrVal.Length + 1;
                         _binaryBlobs.Add(Encoding.ASCII.GetBytes(argument.StrVal));
                         _binaryBlobs.Add(new byte[] { 0 });
-                        _localSymbols[elf][argument.Name] = new Symbol { address = _location, size = argLen };
+                        _globalSymbols[argument.Name] = new Symbol { address = _location, size = argLen };
                         _location += argLen;
 
                         // Align to 4 bytes
@@ -459,8 +477,7 @@ namespace Kamek
         {
             foreach (var patch in _modules)
             {
-                Elf elf = patch.Code;
-                foreach (var pair in _localSymbols[elf])
+                foreach (var pair in _localSymbols[patch.Code])
                 {
                     if (pair.Key.StartsWith("_kHook"))
                     {

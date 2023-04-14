@@ -72,15 +72,9 @@ static class Library {
 				JArray argumentsArray = (JArray)argumentsObj;
 				foreach (JObject argument in argumentsArray.Cast<JObject>()) {
 					PatchArg patchArg = new PatchArg { Name = argument.GetValue("name").ToString() };
-					if (argument.TryGetValue("offsets", out JToken offsets)) {
-						patchArg.StrVal = null;
-						// Temporary placeholder until we figure out how to pass arguments from C
-						patchArg.IntVal = 1;
+					if (argument.TryGetValue("offsets", out JToken offsets))
 						patchArg.IntOffsets = offsets.Select(j => (int)j).ToList();
-					} else {
-						// Ditto
-						patchArg.StrVal = "StarCreekGalaxy";
-					}
+
 					patch.Arguments.Add(patchArg);
 				}
 			}
@@ -117,7 +111,18 @@ static class Library {
 		foreach (var version in versions.Mappers) {
 			var linker = new Linker(version.Value);
 			foreach (var patchEnabled in patchesEnabled) {
-				linker.AddModule(patches[patchEnabled]);
+				Patch patchToAdd = patches[patchEnabled];
+				for (int i = 0; i < patchToAdd.Arguments.Count; ++i) {
+					PatchArg patchArg = patchToAdd.Arguments[i];
+					if (patchArg.IntOffsets == null)
+						patchArg.StrVal = "StarCreekGalaxy";
+					else
+						patchArg.IntVal = 1;
+
+					patchToAdd.Arguments[i] = patchArg;
+				}
+
+				linker.AddModule(patchToAdd);
 			}
 
 			if (patchType == PatchType.bin)
@@ -169,9 +174,8 @@ static class Library {
 			info.Size = strs.Length;
 			info.Ptr = Marshal.AllocHGlobal(strs.Length * 8);
 			byte** sptrs = (byte**)info.Ptr;
-			for (int i = 0; i < strs.Length; i++) {
+			for (int i = 0; i < strs.Length; i++)
 				sptrs[i] = (byte*)Marshal.StringToHGlobalAnsi(strs[i]);
-			}
 		}
 		return info;
 	}

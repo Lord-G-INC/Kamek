@@ -23,6 +23,6 @@ struct ptr_info {
 };
 
 extern void kamek_init(void);
-extern struct ptr_info kamek_createpatch(char **patches, int patch_count, char *game, enum patch_type patch_type, unsigned int base_address);
+extern struct ptr_info kamek_createpatch(char **patches, int patch_count, void **patch_args, char *game, enum patch_type patch_type, unsigned int base_address);
 
 #endif

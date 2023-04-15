@@ -143,9 +143,8 @@ namespace Kamek
                         if (argument.StrVal == null)
                             continue;
 
-                        uint argLen = (uint)argument.StrVal.Length + 1;
-                        _binaryBlobs.Add(Encoding.ASCII.GetBytes(argument.StrVal));
-                        _binaryBlobs.Add(new byte[] { 0 });
+                        uint argLen = (uint)argument.StrVal.Length;
+                        _binaryBlobs.Add(argument.StrVal);
                         _globalSymbols[argument.Name] = new Symbol { address = _location, size = argLen };
                         _location += argLen;
 

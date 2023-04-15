@@ -37,7 +37,7 @@ static class Library {
 
 	public struct PatchArg {
 		public string Name;
-		public string StrVal;
+		public byte[] StrVal;
 		public int IntVal;
 		public List<int> IntOffsets;
 	}
@@ -100,26 +100,36 @@ static class Library {
 		}
 	}
 
-	static void CreatePatch(string[] patchesEnabled, string gameID, PatchType patchType, uint baseAddress,
-		out byte[] bytes, out string[] strs) {
-		bytes = null;
-		strs = null;
+	[UnmanagedCallersOnly(EntryPoint = "kamek_createpatch")]
+	public static unsafe PtrInfo CreatePatch(nint pPatches, int patchesCount, nint pPatchArgs, nint pGameID,
+		PatchType patchType, uint baseAddress) {
+		string[] strs = null;
+		byte[] bytes = null;
+		char** ppPatches = (char**)pPatches;
+		char** ppPatchArgs = (char **)pPatchArgs;
+		uint argIndex = 0;
 
 		// We need a default VersionList for the loop later
 		VersionInfo versions = new();
 
 		foreach (var version in versions.Mappers) {
 			var linker = new Linker(version.Value);
-			foreach (var patchEnabled in patchesEnabled) {
-				Patch patchToAdd = patches[patchEnabled];
-				for (int i = 0; i < patchToAdd.Arguments.Count; ++i) {
-					PatchArg patchArg = patchToAdd.Arguments[i];
-					if (patchArg.IntOffsets == null)
-						patchArg.StrVal = "StarCreekGalaxy";
-					else
-						patchArg.IntVal = 1;
+			for (int i = 0; i < patchesCount; i++) {
+				Patch patchToAdd = patches[Marshal.PtrToStringAnsi((nint)ppPatches[i])];
+				for (int j = 0; j < patchToAdd.Arguments.Count; ++j, ++argIndex) {
+					PatchArg patchArg = patchToAdd.Arguments[j];
+					if (patchArg.IntOffsets == null) {
+						int argLen = 0;
+						while (Marshal.ReadByte((nint)ppPatchArgs[j], argLen) != 0)
+							argLen++;
+						argLen++;
+						patchArg.StrVal = new byte[argLen];
+						Marshal.Copy((nint)ppPatchArgs[j], patchArg.StrVal, 0, argLen);
+					} else {
+						patchArg.IntVal = Marshal.ReadInt32((nint)ppPatchArgs[j]);
+					}
 
-					patchToAdd.Arguments[i] = patchArg;
+					patchToAdd.Arguments[j] = patchArg;
 				}
 
 				linker.AddModule(patchToAdd);
@@ -147,24 +157,14 @@ static class Library {
 					break;
 				}
 				case PatchType.dol: {
-					var dol = new Dol(new FileStream("/srv/http/smg/" + gameID + ".dol", FileMode.Open, FileAccess.Read));
+					var dol = new Dol(new FileStream("/srv/http/smg/" +  Marshal.PtrToStringAnsi(pGameID) + ".dol", FileMode.Open, FileAccess.Read));
 					kf.InjectIntoDol(dol);
 					bytes = dol.Write();
 					break;
 				}
 			}
 		}
-	}
 
-	[UnmanagedCallersOnly(EntryPoint = "kamek_createpatch")]
-	public static unsafe PtrInfo CreatePatch(nint pPatches, int patchesSize, nint pGameID, 
-		PatchType patchType, uint baseAddress) {
-		string[] patches = new string[patchesSize];
-		char** ptr = (char**)pPatches;
-		for (int i = 0; i < patchesSize; i++)
-			patches[i] = Marshal.PtrToStringAnsi((nint)ptr[i]);
-		string gameID = Marshal.PtrToStringAnsi(pGameID);
-		CreatePatch(patches, gameID, patchType, baseAddress, out var bytes, out var strs);
 		PtrInfo info = new();
 		if (bytes != null) {
 			info.Size = bytes.Length;
@@ -177,6 +177,7 @@ static class Library {
 			for (int i = 0; i < strs.Length; i++)
 				sptrs[i] = (byte*)Marshal.StringToHGlobalAnsi(strs[i]);
 		}
+
 		return info;
 	}
 }

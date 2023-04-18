@@ -123,7 +123,7 @@ static class Library {
 						patchArg.StrVal = new byte[argLen];
 						Marshal.Copy((nint)ppPatchArgs[j], patchArg.StrVal, 0, argLen);
 					} else {
-						patchArg.IntVal = Marshal.ReadInt32((nint)ppPatchArgs[j]);
+						patchArg.IntVal = (int)ppPatchArgs[j];
 					}
 
 					patchToAdd.Arguments[j] = patchArg;

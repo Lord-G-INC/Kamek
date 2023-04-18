@@ -22,7 +22,12 @@ struct ptr_info {
 	size_t size;
 };
 
+union kamek_arg {
+	char *str_val;
+	int int_val;
+};
+
 extern void kamek_init(void);
-extern struct ptr_info kamek_createpatch(char **patches, int patch_count, void **patch_args, char *game, enum patch_type patch_type, unsigned int base_address);
+extern struct ptr_info kamek_createpatch(const char **patches, int patch_count, union kamek_arg *patch_args, char *game, enum patch_type patch_type, unsigned int base_address);
 
 #endif

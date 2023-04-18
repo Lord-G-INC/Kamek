@@ -59,13 +59,10 @@ static class Library {
 		foreach (JObject jsonObj in jsonArr.Cast<JObject>()) {
 			string patchName = jsonObj.GetValue("name").ToString();
 
-			Elf patchElf;
+			Patch patch = new Patch();
 			using (var stream = new FileStream("/srv/http/smg/patches/" + patchName + ".o", FileMode.Open, FileAccess.Read)) {
-				patchElf = new Elf(stream);
+				patch.Code = new Elf(stream);
 			}
-			Patch patch = new Patch {
-				Code = patchElf
-			};
 
 			patch.Arguments = new List<PatchArg>();
 			if (jsonObj.TryGetValue("arguments", out JToken argumentsObj)) {

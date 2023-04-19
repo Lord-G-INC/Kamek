@@ -23,7 +23,12 @@ static class Library {
 		Int,
 	}
 
-	public enum Games {
+	public enum Game {
+		SMG1,
+		SMG2,
+	}
+
+	public enum Region {
 		RMGJ,
 		RMGE,
 		RMGP,
@@ -31,9 +36,10 @@ static class Library {
 		SB4J,
 		SB4E,
 		SB4P,
-		SB4W,
 		SB4K,
+		SB4W,
 	}
+
 
 	public struct PatchArg {
 		public string Name;
@@ -49,57 +55,76 @@ static class Library {
 
 	public record struct PtrInfo(nint Ptr, int Size);
 
-	public static Dictionary<string, uint> externals = new Dictionary<string, uint>();
-	public static Dictionary<string, Patch> patches = new Dictionary<string, Patch>();
+	public static Dictionary<Region, Dictionary<string, uint>> externals = new Dictionary<Region, Dictionary<string, uint>>();
+	public static Dictionary<Game, Dictionary<string, Patch>> patches = new Dictionary<Game, Dictionary<string, Patch>>();
 
 	[UnmanagedCallersOnly(EntryPoint = "kamek_init")]
 	static void Init() {
-		JArray jsonArr = JArray.Parse(File.ReadAllText("/srv/http/smg/smg2-patches.json"));
+		foreach (Game game in Enum.GetValues<Game>()) {
+			Dictionary<string, Patch> gamePatches = new Dictionary<string, Patch>();
+			JArray jsonArr = JArray.Parse(File.ReadAllText(game == Game.SMG2 ? "/srv/http/smg/smg2-patches.json" : "/srv/http/smg/smg-patches.json"));
 
-		foreach (JObject jsonObj in jsonArr.Cast<JObject>()) {
-			string patchName = jsonObj.GetValue("name").ToString();
+			foreach (JObject jsonObj in jsonArr.Cast<JObject>()) {
+				string patchName = jsonObj.GetValue("name").ToString();
 
-			Patch patch = new Patch();
-			using (var stream = new FileStream("/srv/http/smg/patches/" + patchName + ".o", FileMode.Open, FileAccess.Read)) {
-				patch.Code = new Elf(stream);
-			}
-
-			patch.Arguments = new List<PatchArg>();
-			if (jsonObj.TryGetValue("arguments", out JToken argumentsObj)) {
-				JArray argumentsArray = (JArray)argumentsObj;
-				foreach (JObject argument in argumentsArray.Cast<JObject>()) {
-					PatchArg patchArg = new PatchArg { Name = argument.GetValue("name").ToString() };
-					if (argument.TryGetValue("offsets", out JToken offsets))
-						patchArg.IntOffsets = offsets.Select(j => (int)j).ToList();
-
-					patch.Arguments.Add(patchArg);
+				Patch patch = new Patch();
+				using (var stream = new FileStream((game == Game.SMG2 ? "/srv/http/smg/smg2-patches/" : "/srv/http/smg/smg-patches/") + patchName + ".o", FileMode.Open, FileAccess.Read)) {
+					patch.Code = new Elf(stream);
 				}
+
+				patch.Arguments = new List<PatchArg>();
+				if (jsonObj.TryGetValue("arguments", out JToken argumentsObj)) {
+					JArray argumentsArray = (JArray)argumentsObj;
+					foreach (JObject argument in argumentsArray.Cast<JObject>()) {
+						PatchArg patchArg = new PatchArg { Name = argument.GetValue("name").ToString() };
+						if (argument.TryGetValue("offsets", out JToken offsets))
+							patchArg.IntOffsets = offsets.Select(j => (int)j).ToList();
+
+						patch.Arguments.Add(patchArg);
+					}
+				}
+
+				gamePatches[patchName] = patch;
 			}
 
-			patches[patchName] = patch;
+			patches[game] = gamePatches;
 		}
 
 		var commentRegex = new Regex(@"^\s*#");
 		var emptyLineRegex = new Regex(@"^\s*$");
 		var assignmentRegex = new Regex(@"^\s*([a-zA-Z0-9_<>@,-\\$]+)\s*=\s*0x([a-fA-F0-9]+)\s*(#.*)?$");
 
-		foreach (var line in File.ReadAllLines("/srv/http/smg/SB4E01.map")) {
-			if (emptyLineRegex.IsMatch(line))
-				continue;
-			if (commentRegex.IsMatch(line))
-				continue;
+		foreach (Region region in Enum.GetValues<Region>()) {
+			Dictionary<string, uint> gameExternals = new Dictionary<string, uint>();
+			foreach (var line in File.ReadAllLines("/srv/http/smg/" + region.ToString() + "01.map")) {
+				if (emptyLineRegex.IsMatch(line))
+					continue;
+				if (commentRegex.IsMatch(line))
+					continue;
 
-			var match = assignmentRegex.Match(line);
-			if (match.Success)
-				externals[match.Groups[1].Value] = uint.Parse(match.Groups[2].Value, System.Globalization.NumberStyles.HexNumber);
-			else
-				Console.Error.WriteLine("unrecognised line in externals file: {0}", line);
+				var match = assignmentRegex.Match(line);
+				if (match.Success)
+					gameExternals[match.Groups[1].Value] = uint.Parse(match.Groups[2].Value, System.Globalization.NumberStyles.HexNumber);
+				else
+					Console.Error.WriteLine("unrecognised line in externals file: {0}", line);
+			}
+
+			externals[region] = gameExternals;
 		}
 	}
 
 	[UnmanagedCallersOnly(EntryPoint = "kamek_createpatch")]
-	public static unsafe PtrInfo CreatePatch(nint pPatches, int patchesCount, nint pPatchArgs, nint pGameID,
+	public static unsafe PtrInfo CreatePatch(nint pPatches, int patchesCount, nint pPatchArgs, Region gameID,
 		PatchType patchType, uint baseAddress) {
+		Game game;
+		int gameIDValue = (int)gameID;
+		if (gameIDValue >= 0 && gameIDValue < 4)
+			game = Game.SMG1;
+		else if (gameIDValue >= 4 && gameIDValue < 9)
+			game = Game.SMG2;
+		else
+			throw new InvalidOperationException("Invalid game");
+
 		string[] strs = null;
 		byte[] bytes = null;
 		char** ppPatches = (char**)pPatches;
@@ -112,7 +137,7 @@ static class Library {
 		foreach (var version in versions.Mappers) {
 			var linker = new Linker(version.Value);
 			for (int i = 0; i < patchesCount; i++) {
-				Patch patchToAdd = patches[Marshal.PtrToStringAnsi((nint)ppPatches[i])];
+				Patch patchToAdd = patches[game][Marshal.PtrToStringAnsi((nint)ppPatches[i])];
 				for (int j = 0; j < patchToAdd.Arguments.Count; ++j, ++argIndex) {
 					PatchArg patchArg = patchToAdd.Arguments[j];
 					if (patchArg.IntOffsets == null) {
@@ -133,9 +158,9 @@ static class Library {
 			}
 
 			if (patchType == PatchType.bin)
-				linker.LinkDynamic(externals);
+				linker.LinkDynamic(externals[gameID]);
 			else
-				linker.LinkStatic(baseAddress, externals);
+				linker.LinkStatic(baseAddress, externals[gameID]);
 
 			var kf = new KamekFile();
 			kf.LoadFromLinker(linker);
@@ -154,7 +179,7 @@ static class Library {
 					break;
 				}
 				case PatchType.dol: {
-					var dol = new Dol(new FileStream("/srv/http/smg/" +  Marshal.PtrToStringAnsi(pGameID) + ".dol", FileMode.Open, FileAccess.Read));
+					var dol = new Dol(new FileStream("/srv/http/smg/" +  gameID.ToString() + "01.dol", FileMode.Open, FileAccess.Read));
 					kf.InjectIntoDol(dol);
 					bytes = dol.Write();
 					break;

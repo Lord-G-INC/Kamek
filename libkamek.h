@@ -8,6 +8,18 @@ enum patch_type {
 	DOL,
 };
 
+enum game {
+	RMGJ,
+	RMGE,
+	RMGP,
+	RMGK,
+	SB4J,
+	SB4E,
+	SB4P,
+	SB4K,
+	SB4W,
+};
+
 struct ptr_info {
 	/*
 	 * Points to binary data (unsigned char *) for BIN
@@ -28,6 +40,6 @@ union kamek_arg {
 };
 
 extern void kamek_init(void);
-extern struct ptr_info kamek_createpatch(const char **patches, int patch_count, union kamek_arg *patch_args, char *game, enum patch_type patch_type, unsigned int base_address);
+extern struct ptr_info kamek_createpatch(const char **patches, int patch_count, union kamek_arg *patch_args, enum game game, enum patch_type patch_type, unsigned int base_address);
 
 #endif

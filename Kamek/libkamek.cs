@@ -142,13 +142,13 @@ static class Library {
 					PatchArg patchArg = patchToAdd.Arguments[j];
 					if (patchArg.IntOffsets == null) {
 						int argLen = 0;
-						while (Marshal.ReadByte((nint)ppPatchArgs[j], argLen) != 0)
+						while (Marshal.ReadByte((nint)ppPatchArgs[argIndex], argLen) != 0)
 							argLen++;
 						argLen++;
 						patchArg.StrVal = new byte[argLen];
-						Marshal.Copy((nint)ppPatchArgs[j], patchArg.StrVal, 0, argLen);
+						Marshal.Copy((nint)ppPatchArgs[argIndex], patchArg.StrVal, 0, argLen);
 					} else {
-						patchArg.IntVal = (int)ppPatchArgs[j];
+						patchArg.IntVal = (int)ppPatchArgs[argIndex];
 					}
 
 					patchToAdd.Arguments[j] = patchArg;

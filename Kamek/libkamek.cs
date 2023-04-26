@@ -96,7 +96,8 @@ static class Library {
 
 		foreach (Region region in Enum.GetValues<Region>()) {
 			Dictionary<string, uint> gameExternals = new Dictionary<string, uint>();
-			foreach (var line in File.ReadAllLines("/srv/http/smg/" + region.ToString() + "01.map")) {
+			string externalsPath = "/srv/http/smg/" + region.ToString() + "01.map";
+			foreach (var line in File.ReadAllLines(externalsPath)) {
 				if (emptyLineRegex.IsMatch(line))
 					continue;
 				if (commentRegex.IsMatch(line))
@@ -106,7 +107,7 @@ static class Library {
 				if (match.Success)
 					gameExternals[match.Groups[1].Value] = uint.Parse(match.Groups[2].Value, System.Globalization.NumberStyles.HexNumber);
 				else
-					Console.Error.WriteLine("unrecognised line in externals file: {0}", line);
+					Console.Error.WriteLine("unrecognised line in {0}: {1}", externalsPath, line);
 			}
 
 			externals[region] = gameExternals;
